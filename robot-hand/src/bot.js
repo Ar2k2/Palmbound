@@ -164,4 +164,30 @@ export async function closure(start) {
   }
 }
 
-window.__bot = { setDrones: (v) => { DRONES = v; }, explore, closure, ascii, route, root, SPAWN: ST };
+// The progression gates, each a bounded search: [name, abilities, start tile, bounds, items it must find, cap].
+// Run them all after any map change: `await __bot.gates()`. Each takes up to a few minutes, so it logs as it goes.
+export const GATES = [
+  ['bare start finds hop',          [],                                  null,      null,                 ['hop'], 60000],
+  ['hop finds dash',                ['hop'],                             null,      null,                 ['dash'], 100000],
+  ['hop+dash find glide',           ['hop', 'dash'],                     null,      null,                 ['glide'], 250000],
+  ['glide crosses the chasm',       ['glide'],                           [77, 28],  [60, 10, 110, 50],    ['suction'], 250000],
+  ['sprocket yard (blaster)',       ['hop', 'dash'],                     [104, 49], [93, 40, 145, 62],    ['blaster'], 250000],
+  ['rumble pit (slam)',             ['hop', 'dash', 'glide', 'suction'], [163, 69], [150, 55, 215, 76],   ['slam'], 300000],
+  ['cellar (quake)',                ['hop', 'dash', 'glide', 'suction'], [197, 97], [176, 79, 240, 99],   ['quake'], 300000],
+  ['hollows (rapid, triple, plate)', ['hop', 'glide'],                   [20, 40],  [8, 38, 145, 100],    ['rapid', 'triple', 'armor4'], 300000],
+  ['foundry and underworks',        ['hop', 'dash', 'glide', 'suction'], [105, 36], [93, 20, 250, 80],    ['afterburner', 'armor3', 'coil', 'widefins'], 300000],
+];
+export async function gates(only = null) {
+  const out = [];
+  DRONES = false;
+  for (const [name, abil, from, bounds, want, cap] of GATES) {
+    if (only && !name.includes(only)) continue;
+    const res = await explore(new Set(abil), cap, from, bounds);
+    const missing = want.filter((id) => !res.found.has(id));
+    out.push(`${missing.length ? 'FAIL' : 'ok  '} ${name}${missing.length ? ` (missing ${missing})` : ''}`);
+    console.log(out[out.length - 1]);
+  }
+  return out;
+}
+
+window.__bot = { gates, setDrones: (v) => { DRONES = v; }, explore, closure, ascii, route, root, SPAWN: ST };
