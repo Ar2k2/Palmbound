@@ -164,27 +164,35 @@ export async function closure(start) {
   }
 }
 
-// The progression gates, each a bounded search: [name, abilities, start tile, bounds, items it must find, cap].
+// The progression gates, each a bounded search: [name, abilities, start tile, bounds, items it must find, cap, tiles it must not reach].
 // Run them all after any map change: `await __bot.gates()`. Each takes up to a few minutes, so it logs as it goes.
 export const GATES = [
-  ['bare start finds hop',          [],                                  null,      null,                 ['hop'], 60000],
-  ['hop finds dash',                ['hop'],                             null,      null,                 ['dash'], 100000],
-  ['hop+dash find glide',           ['hop', 'dash'],                     null,      null,                 ['glide'], 250000],
-  ['glide crosses the chasm',       ['glide'],                           [77, 28],  [60, 10, 110, 50],    ['suction'], 250000],
+  ['bare start finds hop',          [],                                  null,      null,                 ['hop'], 60000, ['dash', 'glide', 'suction']],
+  ['hop finds dash',                ['hop'],                             null,      null,                 ['dash'], 100000, ['glide', 'suction']],
+  ['hop+dash find glide + twin thrusters', ['hop', 'dash'],              null,      null,                 ['glide', 'dashcharge'], 250000],
+  ['glide crosses the chasm (+ long fins)', ['glide'],                   [77, 28],  [60, 10, 110, 50],    ['suction', 'longfins'], 250000],
   ['sprocket yard (blaster)',       ['hop', 'dash'],                     [104, 49], [93, 40, 145, 62],    ['blaster'], 250000],
   ['rumble pit (slam)',             ['hop', 'dash', 'glide', 'suction'], [163, 69], [150, 55, 215, 76],   ['slam'], 300000],
   ['cellar (quake)',                ['hop', 'dash', 'glide', 'suction'], [197, 97], [176, 79, 240, 99],   ['quake'], 300000],
-  ['hollows (rapid, triple, plate)', ['hop', 'glide'],                   [20, 40],  [8, 38, 145, 100],    ['rapid', 'triple', 'armor4'], 300000],
+  ['hollows entry (slam, rapid, triple)', ['hop', 'glide', 'slam'],      [20, 40],  [8, 38, 145, 100],    ['rapid', 'triple'], 300000],
+  ['deep hollows (plate)',          ['hop', 'glide'],                    [24, 72],  [20, 60, 145, 100],   ['armor4'], 300000],
+  // an upgrade must sit behind the ability it improves: with everything BEFORE that ability, it must stay out of reach
+  ['order: nothing needs hop yet',   [],                                  null,      null,                 [], 60000,  ['knees', 'airhop', 'coil']],
+  ['order: nothing needs dash yet',  ['hop'],                             null,      null,                 [], 150000, ['dashcharge', 'capacitor', 'afterburner']],
+  ['order: nothing needs glide yet', ['hop', 'dash', 'dashcharge'],       null,      null,                 [], 250000, ['longfins', 'widefins']],
+  ['order: nothing needs blaster yet', ['hop', 'dash', 'glide', 'suction'], null,    null,                 [], 300000, ['rapid', 'triple']],
+  ['hollows stay shut without slam', ['hop', 'dash', 'glide', 'suction'],  [4, 56],   [0, 36, 50, 75],     [], 60000, [[24, 66]]],   // last column: tiles it must NOT reach (or item ids it must not find)
   ['foundry and underworks',        ['hop', 'dash', 'glide', 'suction'], [105, 36], [93, 20, 250, 80],    ['afterburner', 'armor3', 'coil', 'widefins'], 300000],
 ];
 export async function gates(only = null) {
   const out = [];
   DRONES = false;
-  for (const [name, abil, from, bounds, want, cap] of GATES) {
+  for (const [name, abil, from, bounds, want, cap, forbid = []] of GATES) {
     if (only && !name.includes(only)) continue;
     const res = await explore(new Set(abil), cap, from, bounds);
     const missing = want.filter((id) => !res.found.has(id));
-    out.push(`${missing.length ? 'FAIL' : 'ok  '} ${name}${missing.length ? ` (missing ${missing})` : ''}`);
+    const leaked = forbid.filter((f) => (typeof f === 'string' ? res.found.has(f) : res.reached[f[1] * COLS + f[0]]));
+    out.push(`${missing.length || leaked.length ? 'FAIL' : 'ok  '} ${name}${missing.length ? ` (missing ${missing})` : ''}${leaked.length ? ` (reached ${leaked.join(' ')})` : ''}`);
     console.log(out[out.length - 1]);
   }
   return out;

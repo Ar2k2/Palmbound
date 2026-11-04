@@ -1,7 +1,7 @@
 // Sanity checks on the hand-made world data. Run with: npm test
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { TILE, AIR, SPIKE, tileAt, CHECKPOINTS, ITEMS, ENEMIES, BOSSES, FLOATERS, SPAWN } from '../src/world.js';
+import { TILE, AIR, SPIKE, BRICK, COLS, ROWS, tileAt, CHECKPOINTS, ITEMS, ENEMIES, BOSSES, FLOATERS, SPAWN } from '../src/world.js';
 
 const isAir = (c, r) => tileAt(c, r) === AIR || tileAt(c, r) === SPIKE;
 const solid = (c, r) => !isAir(c, r);
@@ -47,4 +47,19 @@ test('every boss guards an item that exists, and its arena is open', () => {
 test('item ids are unique', () => {
   const ids = ITEMS.map(([id]) => id);
   assert.equal(new Set(ids).size, ids.length);
+});
+
+// the Hollows are late-game: nothing you can walk, climb or fall through from the start may lead into them
+test('the Hollows cannot be entered from the start without breaking the brick plug', () => {
+  for (const r of [52, 57]) for (const c of [22, 23]) assert.equal(tileAt(c, r), BRICK, `brick plug missing at ${c},${r}`); // 52: ceiling of the start tunnel (keeps the G wing shut), 57: its floor (keeps the Hollows shut)
+  const seen = new Uint8Array(COLS * ROWS), todo = [[SPAWN.c, SPAWN.r]];
+  while (todo.length) {
+    const [c, r] = todo.pop();
+    if (c < 0 || r < 0 || c >= COLS || r >= ROWS || seen[r * COLS + c] || !isAir(c, r)) continue;
+    seen[r * COLS + c] = 1;
+    todo.push([c + 1, r], [c - 1, r], [c, r + 1], [c, r - 1]);
+  }
+  assert.ok(seen[56 * COLS + 4], 'flood fill never left the spawn');
+  assert.ok(!seen[66 * COLS + 24], 'open air leads from the spawn into the Hollows');
+  assert.ok(!seen[38 * COLS + 12], 'open air leads from the spawn into the glide shrine room');
 });

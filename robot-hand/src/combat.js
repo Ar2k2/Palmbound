@@ -8,7 +8,7 @@ const toY = (y) => -y;
 
 // Your blaster, the enemies, enemy bolts and the bosses. main.js hands in what it owns (ctx); this file never touches the loop.
 export function createCombat(ctx) {
-  const { scene, camera, body, game, owned, stat, items, drones, particles, audio, showMessage, hurt, isHeld } = ctx;
+  const { scene, camera, body, game, owned, stat, items, drones, particles, audio, showMessage, hurt, isHeld, touch } = ctx;
 
 // ---------------------------------------------------------------
 // COMBAT: your blaster, the enemies, enemy bolts and the bosses
@@ -44,8 +44,11 @@ function clearBolts() {
 // --- the blaster: aim with the mouse, click or hold F to shoot ---
 const mouse = { x: 0, y: 0, down: false, moved: false };
 const crossEl = document.getElementById('cross');
-window.addEventListener('mousemove', (e) => { mouse.x = e.clientX; mouse.y = e.clientY; mouse.moved = true; crossEl.style.left = `${e.clientX}px`; crossEl.style.top = `${e.clientY}px`; });
-window.addEventListener('mousedown', () => { mouse.down = true; });
+window.addEventListener('mousemove', (e) => {
+  if (touch) return; // a tap also sends a fake mouse move: on a phone you aim with the pad instead
+  mouse.x = e.clientX; mouse.y = e.clientY; mouse.moved = true; crossEl.style.left = `${e.clientX}px`; crossEl.style.top = `${e.clientY}px`;
+});
+window.addEventListener('mousedown', () => { if (!touch) mouse.down = true; });
 window.addEventListener('mouseup', () => { mouse.down = false; });
 const ray = new THREE.Raycaster();
 const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
@@ -69,7 +72,10 @@ function updatePlayerGun(time, dt) {
   game.gunCd = Math.max(0, (game.gunCd || 0) - dt);
   if (!owned.has('blaster') || ctx.mapOpen || game.dead) return;
   if (!(mouse.down || isHeld('KeyF')) || game.gunCd > 0) return;
-  const aim = mouse.moved ? mouseWorld() : { x: b.x + game.facing * 100, y: b.y };
+  // no mouse: shoot the way you face, or straight up / down / diagonally when those keys are held
+  const vy = (isHeld('ArrowUp', 'KeyW') ? -1 : 0) + (isHeld('ArrowDown', 'KeyS') ? 1 : 0);
+  const sideways = isHeld('ArrowLeft', 'ArrowRight', 'KeyA', 'KeyD') || !vy;
+  const aim = mouse.moved ? mouseWorld() : { x: b.x + (sideways ? game.facing * 100 : 0), y: b.y + vy * 100 };
   const a = Math.atan2(aim.y - b.y, aim.x - b.x);
   const n = stat.triple ? 3 : 1;
   for (let k = 0; k < n; k++) {

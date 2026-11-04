@@ -149,8 +149,10 @@ solid(205,97,12,1,SPIKE); solid(203,92,1,5);       // climb the pillar, hang ove
 solid(226,97,7,1,SPIKE); solid(224,92,1,5);
 
 // ---------------- THE HOLLOWS (under the glide shrine): caves full of crawlers ----------------
-carve(22,41,2,22);             // a hole in the shrine room floor
-carve(10,63,40,10);
+carve(22,41,2,22);             // a hole in the shrine room floor, down through the start tunnel
+solid(22,52,2,1,BRICK);        // ...but the shaft is bricked at the tunnel's ceiling (from below it is just more ceiling, so nobody climbs up into the G wing early)
+solid(22,57,2,1,BRICK);        // ...and at the tunnel's floor: only a Slam gets you down, so nobody falls in early
+carve(22,63,28,10);            // the cave starts at the shaft's foot, so its west wall is a straight climb back up
 solid(26,72,6,1,SPIKE);
 solid(35,67,1,6); solid(37,72,10,1,SPIKE);
 carve(50,68,30,5);
@@ -167,15 +169,15 @@ export const SPAWN = { c: 4, r: 56 };
 export const CHECKPOINTS = [
   [4, 56], [41, 56], [64, 56], [44, 28], [94, 56], [104, 49], [12, 40], [102, 42], [47, 9], [9, 8], [82, 8],
   [95, 36], [24, 31], [77, 28], [110, 9], [110, 36], [149, 36], [162, 69],
-  [110, 49], [172, 69], [182, 97], [20, 72], [90, 72], [64, 98], [234, 97],
+  [110, 49], [172, 69], [182, 97], [24, 72], [90, 72], [64, 98], [234, 97],
 ];
 
 // [id, column, row] (row = the tile the item floats in)
 export const ITEMS = [
   ['dash', 103, 49], ['glide', 21, 40], ['suction', 101, 42], ['hop', 71, 55],
   ['overclock', 55, 58], ['gripgel', 58, 42], ['scanner', 72, 23],
-  ['dashcharge', 97, 46], ['armor1', 89, 52],
-  ['longfins', 28, 24], ['magnet', 12, 40],
+  ['dashcharge', 28, 24], ['armor1', 89, 52],   // Twin Thrusters: the gift on the G-wing tower, behind the Dash-only cracked wall
+  ['longfins', 92, 33], ['magnet', 12, 40],      // Long Fins: at the chasm's far mouth, 12 tiles out and below the lip: only a Glide gets there
   ['armor2', 103, 37], ['capacitor', 100, 33],
   ['airhop', 51, 5], ['knees', 77, 8],
   ['afterburner', 145, 25], ['armor3', 158, 36], ['coil', 164, 69], ['widefins', 148, 63],
@@ -186,10 +188,10 @@ export const ITEMS = [
 
 // [type, column, row, range in tiles]: crawlers walk the floor tile in that row, turrets stand on it, divers hang under the ceiling
 export const ENEMIES = [
-  ['crawler', 52, 72, 10], ['crawler', 18, 72, 4], ['crawler', 88, 72, 6], ['crawler', 70, 98, 6], ['crawler', 88, 98, 6], ['crawler', 132, 98, 3],
+  ['crawler', 52, 72, 10], ['crawler', 33, 72, 1], ['crawler', 88, 72, 6], ['crawler', 70, 98, 6], ['crawler', 88, 98, 6], ['crawler', 132, 98, 3],
   ['crawler', 182, 97, 4], ['crawler', 221, 97, 3], ['crawler', 137, 36, 4], ['crawler', 155, 36, 6], ['crawler', 92, 56, 1.5],
   ['turret', 140, 36], ['turret', 160, 36], ['turret', 200, 97], ['turret', 234, 97], ['turret', 118, 98], ['turret', 96, 98], ['turret', 48, 72],
-  ['diver', 15, 63], ['diver', 40, 63], ['diver', 65, 68], ['diver', 80, 85], ['diver', 110, 85], ['diver', 130, 85],
+  ['diver', 31, 63], ['diver', 40, 63], ['diver', 65, 68], ['diver', 80, 85], ['diver', 110, 85], ['diver', 130, 85],
   ['diver', 190, 80], ['diver', 214, 80], ['diver', 135, 33], ['diver', 150, 33],
 ];
 
@@ -217,7 +219,7 @@ export const FLOATERS = [
 export const HINTS = [
   [3, 50, 'Crawl with ← →'],
   [8, 49, 'Hold toward a wall\nand press ↑ to climb'],
-  [20, 54, 'Climb into the ceiling\ncorner, then ← → to hang'],
+  [20, 54, 'Climb the block, and keep ↑ held\nat the top to catch the ceiling.\nThen ← → to hang across.'],
   [47, 42, 'This place is a mess.\nFour doors. Nothing fits yet.'],
   [78, 50, 'A tiny ledge.\nSo small...'],
   [41, 23, 'Cracked. Hit it hard.'],
@@ -228,7 +230,8 @@ export const HINTS = [
   [108, 30, 'The Foundry.\nOnly a whole hand gets through.'],
   [107, 6, 'Something big\nis asleep in there.'],
   [96, 47, 'Another cracked wall,\nhigh on the perch.'], [172, 64, 'Rumbling.'], [196, 66, 'Bricks. Something heavy\nwould go right through.'],
-  [24, 44, 'A hole in the floor.\nSounds crawly down there.'],
+  [24, 44, 'A long drop, and bricks\nat the bottom. Something heavy\nwould go right through.'],
+  [22, 56, 'Bricks in the floor.\nSomething heavy would go through.'], // low, so it never overlaps the ceiling-corner hint at (20,54)
 ];
 
 // [col0, row0, col1, row1, 0xRRGGBB] colours the back wall so each region feels different

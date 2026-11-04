@@ -15,6 +15,7 @@ import * as audio from './audio.js';
 import { makeParticles } from './fx.js';
 import { createCombat } from './combat.js';
 import { buildScenery } from './scenery.js';
+import { setupTouch } from './touch.js';
 import { buildDrone, animateDrone, buildStation, setStation, animateStation, buildPickup } from './models.js';
 
 // ---------------------------------------------------------------
@@ -123,7 +124,9 @@ const toY = (y) => -y; // game y (down) -> three.js y (up)
 // RENDERER, SCENE, CAMERA, LIGHTS
 // ---------------------------------------------------------------
 const renderer = new THREE.WebGLRenderer({ antialias: true });
-const LOW = new URLSearchParams(location.search).get('quality') === 'low'; // ?quality=low for slower graphics cards
+const QS = new URLSearchParams(location.search);
+const TOUCH = matchMedia('(pointer: coarse)').matches || QS.has('touch'); // a phone or tablet (or ?touch to try the controls on a desktop)
+const LOW = QS.get('quality') === 'low' || (TOUCH && QS.get('quality') !== 'high'); // ?quality=low for slower graphics cards: phones get it by default
 renderer.setPixelRatio(LOW ? 1 : Math.min(window.devicePixelRatio, 1.75)); // the bloom buffers are 16-bit, so a full 2x retina canvas can need over 1GB of GPU memory
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
@@ -552,16 +555,15 @@ const held = new Set();
 const pressed = new Set();
 const released = new Set();
 window.addEventListener('pointerdown', () => audio.start());
+const keyDown = (code) => { if (!held.has(code)) pressed.add(code); held.add(code); };
+const keyUp = (code) => { held.delete(code); released.add(code); };
+if (TOUCH) { document.body.classList.add('touch'); setupTouch(keyDown, keyUp); }
 window.addEventListener('keydown', (e) => {
   audio.start(); // browsers only allow sound after a key press or click
-  if (!held.has(e.code)) pressed.add(e.code);
-  held.add(e.code);
+  keyDown(e.code);
   if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(e.code)) e.preventDefault();
 });
-window.addEventListener('keyup', (e) => {
-  held.delete(e.code);
-  released.add(e.code);
-});
+window.addEventListener('keyup', (e) => keyUp(e.code));
 const isHeld = (...codes) => codes.some((c) => held.has(c));
 const justDown = (...codes) => codes.some((c) => pressed.has(c));
 const justUp = (...codes) => codes.some((c) => released.has(c));
@@ -677,7 +679,7 @@ const game = {
   climbSign: 1,     // 1 = last climbed up, -1 = last climbed down
   lastGrounded: -Infinity,
   jumpBufferedAt: -Infinity,
-  lockUntil: 0,
+  lockUntil: 0, wrapHold: false,
   dashUntil: 0, dashDir: 1, dashesLeft: 1, dashReadyAt: 0,
   airJumps: 0,
   checkpoint: stations[0],
@@ -692,7 +694,7 @@ let mapDirty = true;
 
 // combat (blaster, enemies, bosses) lives in combat.js
 const combat = createCombat({
-  scene, camera, body, game, owned, stat, items, drones, particles, audio, showMessage, hurt, isHeld,
+  scene, camera, body, game, owned, stat, items, drones, particles, audio, showMessage, hurt, isHeld, touch: TOUCH,
   get dashing() { return dashing; },
   get mapOpen() { return mapOpen; },
   shake: (v) => { shake = v; },
@@ -753,6 +755,26 @@ function hurt(time, why) {
   } else {
     die(why);
   }
+}
+
+// the tile row of a ceiling you could grab within `reach` px above the hand's head, or -1 (slick only counts with Suction)
+function headroomRow(b, reach = 16) {
+  const r = Math.floor((b.y - b.h / 2 - reach) / TILE);
+  const c0 = Math.floor((b.x - b.w / 2 + EPS) / TILE), c1 = Math.floor((b.x + b.w / 2 - EPS) / TILE);
+  for (let c = c0; c <= c1; c++) {
+    const t = tileAt(c, r);
+    if (t !== AIR && t !== SPIKE && (t !== SLICK || owned.has('suction'))) return r;
+  }
+  return -1;
+}
+
+// the ceiling just ran out while crawling in direction `dir`: the tile we crawled away from has a side face we can wrap round onto
+function ceilingCorner(b, dir) {
+  if (!dir) return null;
+  const c = Math.floor((b.x - dir * (b.w / 2 + 8)) / TILE), r = Math.floor((b.y - b.h / 2 - 4) / TILE);
+  const t = tileAt(c, r);
+  if (t === AIR || t === SPIKE || (t === SLICK && !owned.has('suction'))) return null;
+  return { c, r };
 }
 
 function updateGame(time) {
@@ -841,6 +863,7 @@ function updateGame(time) {
     b.vx = game.gripDir * 30; // keep pressed into the wall
     if (up) game.climbSign = 1;
     if (down) game.climbSign = -1;
+    if (dir !== -game.gripDir) game.wrapHold = false;
 
     const stillOnWall = game.gripDir === 1 ? wallR : wallL;
 
@@ -860,7 +883,7 @@ function updateGame(time) {
       game.facing = away;
       game.lockUntil = time + T.wallJumpLockMs;
       game.jumpBufferedAt = -Infinity;
-    } else if (dir === -game.gripDir) {
+    } else if (dir === -game.gripDir && !game.wrapHold) { // (wrapHold: just came round a corner still holding the crawl direction: that is not "pull away" until you let go of it)
       releaseSurface();
     } else if (!stillOnWall) {
       const ledgeDir = game.gripDir;
@@ -887,7 +910,16 @@ function updateGame(time) {
       game.climbSign = -1;
       b.vx = 0; b.vy = 0;
     } else if (!ceil) {
-      releaseSurface();
+      const corner = ceilingCorner(b, dir);
+      if (corner) { // the ceiling ran out at a block's corner: wrap round it onto that block's side face instead of dropping
+        game.state = 'grip';
+        game.gripDir = -dir;
+        game.climbSign = 1;
+        game.wrapHold = true;
+        b.x = dir === -1 ? corner.c * TILE - b.w / 2 : (corner.c + 1) * TILE + b.w / 2;
+        b.y = (corner.r + 1) * TILE - b.h / 2 - 0.5;
+        b.vx = game.gripDir * 30; b.vy = 0;
+      } else releaseSurface();
     }
   } else {
     b.allowGravity = true;
@@ -921,6 +953,12 @@ function updateGame(time) {
       game.gripDir = wallDir;
       game.climbSign = 1;
       b.vx = 0; b.vy = 0;
+    } else if (up && grounded && headroomRow(b) >= 0) {
+      // standing right under a ceiling (under 16px of headroom, e.g. on top of a ledge): Up grabs it, no jump needed
+      b.y = (headroomRow(b) + 1) * TILE + b.h / 2 - 0.5; // half a pixel inside the rock, so this frame's collision always registers the ceiling
+      game.state = 'ceiling';
+      b.allowGravity = false; b.ax = 0; b.dragX = 0; // gravity this frame would cancel the upward push on a slow frame and drop you again
+      b.vx = 0; b.vy = -30;
     } else {
       game.state = grounded ? 'ground' : 'air';
     }
