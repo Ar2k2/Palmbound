@@ -1,7 +1,7 @@
 // Sanity checks on the hand-made world data. Run with: npm test
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { TILE, AIR, SPIKE, BRICK, COLS, ROWS, tileAt, CHECKPOINTS, ITEMS, ENEMIES, BOSSES, FLOATERS, SPAWN } from '../src/world.js';
+import { TILE, AIR, SPIKE, BRICK, CRACK, COLS, ROWS, tileAt, CHECKPOINTS, ITEMS, ENEMIES, BOSSES, FLOATERS, SPAWN, ESCAPE } from '../src/world.js';
 
 const isAir = (c, r) => tileAt(c, r) === AIR || tileAt(c, r) === SPIKE;
 const solid = (c, r) => !isAir(c, r);
@@ -62,4 +62,21 @@ test('the Hollows cannot be entered from the start without breaking the brick pl
   assert.ok(seen[56 * COLS + 4], 'flood fill never left the spawn');
   assert.ok(!seen[66 * COLS + 24], 'open air leads from the spawn into the Hollows');
   assert.ok(!seen[38 * COLS + 12], 'open air leads from the spawn into the glide shrine room');
+});
+
+// the ending: the robot sleeps in the Keeper's arena and the sealed tunnel east of it (cracked walls only) leads to the exit
+test('the escape tunnel connects the robot to the exit through cracked walls only', () => {
+  const walk = [[ESCAPE.robotC, 9]], seen = new Set();
+  assert.ok(isAir(ESCAPE.robotC, 9), 'the robot is not standing in open air');
+  assert.ok(solid(ESCAPE.robotC, 10), 'the robot has no floor');
+  while (walk.length) {
+    const [c, r] = walk.pop();
+    const k = r * COLS + c;
+    if (seen.has(k) || !(isAir(c, r) || tileAt(c, r) === CRACK)) continue;
+    seen.add(k);
+    walk.push([c + 1, r], [c - 1, r], [c, r + 1], [c, r - 1]);
+  }
+  assert.ok(seen.has(3 * COLS + ESCAPE.exitC), 'the exit is not reachable from the robot');
+  const [sc, sr, sw, sh] = ESCAPE.seal;
+  for (let y = sr; y < sr + sh; y++) for (let x = sc; x < sc + sw; x++) assert.equal(tileAt(x, y), CRACK, `seal missing at ${x},${y}`);
 });

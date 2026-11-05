@@ -8,11 +8,12 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import {
   TILE, COLS, ROWS, AIR, SLICK, SPIKE, CRACK, BRICK, grid, tileAt,
-  SPAWN as SPAWN_TILE, CHECKPOINTS, ITEMS, FLOATERS, HINTS,
+  SPAWN as SPAWN_TILE, CHECKPOINTS, ITEMS, FLOATERS, HINTS, ESCAPE,
 } from './world.js';
 import { explored, reveal, drawMap, exploredPercent } from './map.js';
 import * as audio from './audio.js';
-import { makeParticles } from './fx.js';
+import { makeParticles, makeGlow } from './fx.js';
+import { buildRobot, ROBOT_H } from './robot.js';
 import { createCombat } from './combat.js';
 import { buildScenery } from './scenery.js';
 import { setupTouch } from './touch.js';
@@ -584,6 +585,10 @@ const EPS = 0.01;
 let dashing = false, slamming = false; // set by updateGame, read by the collision code so a dash can break cracked rock
 const sim = { active: false, broken: [] }; // the playtest bot (bot.js) steps the physics headlessly through this
 
+// the seal on the escape tunnel only breaks for the robot, so a Dash cannot open it early
+const [SEAL_C, SEAL_R, SEAL_W, SEAL_H] = ESCAPE.seal;
+const sealed = (c, r) => c >= SEAL_C && c < SEAL_C + SEAL_W && r >= SEAL_R && r < SEAL_R + SEAL_H;
+
 // the whole connected cracked wall shatters at once
 function breakCrack(c, r) {
   const kind = tileAt(c, r);
@@ -603,6 +608,7 @@ function breakCrack(c, r) {
   shake = 0.35;
   mapDirty = true;
   audio.sfx('crack');
+  if (game.robot) { robot.punch(); return; }
   showMessage(kind === BRICK ? 'The bricks give way' : 'The wall shatters');
 }
 
@@ -614,7 +620,7 @@ function collide(b, axis) {
     for (let c = c0; c <= c1; c++) {
       const t = tileAt(c, r);
       if (t === AIR || t === SPIKE) continue;
-      if (t === CRACK && dashing) { breakCrack(c, r); continue; }
+      if (t === CRACK && dashing && (game.robot || !sealed(c, r))) { breakCrack(c, r); continue; }
       if (t === BRICK && slamming && axis === 'y' && b.vy > 0) { breakCrack(c, r); continue; }
       const slickTile = t === SLICK;
       const note = (side) => { b.touch[side] = b.touch[side] === null ? slickTile : b.touch[side] && slickTile; };
@@ -684,7 +690,7 @@ const game = {
   airJumps: 0,
   checkpoint: stations[0],
   shields: stat.shield, invulnUntil: 0,
-  dead: false, deaths: 0, won: false,
+  dead: false, deaths: 0, won: false, robot: false,
   startedAt: performance.now(),
 };
 stations.forEach((st) => setStation(st, false));
@@ -700,6 +706,129 @@ const combat = createCombat({
   shake: (v) => { shake = v; },
   markMap: () => { mapDirty = true; },
 });
+
+// ---------------------------------------------------------------
+// THE ENDING: carry the Core to the sleeping robot, plug in, then smash your way out to the surface
+// ---------------------------------------------------------------
+const ROBOT_W = 64, ROBOT_BODY_H = 120;
+const ROBOT_SPEED = 240, ROBOT_ACCEL = 1500, ROBOT_JUMP = 480; // a hop clears two tiles
+const robot = buildRobot();
+const robotX = (ESCAPE.robotC + 0.5) * TILE, robotFloor = 10 * TILE; // the Keeper's arena floor is row 10
+robot.g.scale.setScalar(ROBOT_BODY_H / ROBOT_H);
+robot.g.position.set(robotX, toY(robotFloor), -14);
+robot.face.rotation.y = 0.55;
+robot.setSlump(1);
+robot.setPower(0);
+scene.add(robot.g);
+const exitGlow = makeGlow(0xfff2c8, 900, 0); // daylight at the end of the tunnel, brighter as you near it
+exitGlow.position.set((ESCAPE.exitC + 2) * TILE, toY(3 * TILE), 10);
+scene.add(exitGlow);
+const coreOrb = makeGlow(0xbff4ff, 46, 0.9);
+coreOrb.visible = false;
+scene.add(coreOrb);
+const ending = { phase: 'none', t0: 0, from: null }; // none -> carry -> connect -> escape -> done
+const endEl = document.createElement('div');
+endEl.style.cssText = 'position:fixed;inset:0;z-index:20;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;background:#fff;color:#0a0c14;font:18px/1.6 monospace;text-align:center;opacity:0;pointer-events:none;transition:opacity 2.5s';
+document.body.appendChild(endEl);
+const ease = (t) => t * t * (3 - 2 * t);
+
+function updateEnding(time, dt) {
+  const b = body;
+  if (ending.phase === 'carry') {
+    coreOrb.visible = true;
+    coreOrb.position.set(b.x, toY(b.y - 34 + Math.sin(time * 0.004) * 3), 4);
+    if (Math.abs(b.x - robotX) < 70 && b.blocked.down) { // reached the robot: the scene takes over
+      ending.phase = 'connect';
+      ending.t0 = time;
+      ending.from = { x: b.x, y: b.y };
+      game.invulnUntil = Infinity; // the robot cannot be hurt
+      game.state = 'air';
+      releaseSurface();
+      b.allowGravity = false;
+    }
+  } else if (ending.phase === 'connect') {
+    const t = (time - ending.t0) / 1000;
+    if (t < 1.4) { // the hand floats up to the robot's chest, the core glowing above it
+      const k = ease(t / 1.4);
+      b.x = ending.from.x + (robotX - ending.from.x) * k;
+      b.y = ending.from.y + (robotFloor - 46 - ending.from.y) * k;
+      coreOrb.position.set(b.x, toY(b.y - 34), 4);
+    } else if (!robot.coreIn) { // the core drops into its slot
+      robot.coreIn = true;
+      robot.setCore(true);
+      hand.root.visible = false;
+      coreOrb.visible = false;
+      audio.sfx('core');
+      particles.burst(robotX, robotFloor - 46, 0xbff4ff, 40, 220, 1, 80);
+      particles.burst(robotX, robotFloor - 46, 0xffffff, 16, 140, 0.8);
+      shake = 0.3;
+      showMessage('Connected.', 2500);
+    }
+    if (t > 1.8) { // the robot wakes and stands
+      const k = ease(Math.min(1, (t - 1.8) / 1.8));
+      robot.setPower(k);
+      robot.setSlump(1 - k);
+      shake = Math.max(shake, 0.12 * k);
+    }
+    if (t > 3.8) { // handed over: the body is now the robot's
+      ending.phase = 'escape';
+      game.robot = true;
+      b.w = ROBOT_W; b.h = ROBOT_BODY_H;
+      b.x = robotX; b.y = robotFloor - ROBOT_BODY_H / 2 - 0.5;
+      b.vx = 0; b.vy = 0; b.allowGravity = true;
+      robot.g.position.z = 0;
+      audio.setMood('escape');
+      audio.setIntensity(1);
+      audio.sfx('ability');
+      showMessage('ROBOT ONLINE\nBreak through. Get out.', 5000);
+    }
+  } else if (ending.phase === 'escape') {
+    shake = Math.max(shake, 0.05); // the whole cave rumbles
+    const x0 = (ESCAPE.exitC - 60) * TILE;
+    exitGlow.material.opacity = 0.9 * clamp((b.x - x0) / (60 * TILE), 0, 1);
+    if (b.x > (ESCAPE.exitC + 0.5) * TILE) endGame(time);
+  }
+
+  if (ending.phase !== 'none') { // the robot's model follows the body once it is awake, and sits still before that
+    const awake = game.robot;
+    if (awake) robot.g.position.set(b.x, toY(b.y + b.h / 2), 0);
+    const want = awake ? game.facing * 0.55 : 0.55;
+    robot.face.rotation.y += (want - robot.face.rotation.y) * Math.min(1, dt * 10);
+  }
+  robot.update(time, dt, game.robot ? b.vx : 0, game.robot ? b.blocked.down : true);
+}
+
+// the robot's controls: walk, jump, and break everything it touches
+function updateRobot(time) {
+  const b = body;
+  const dir = (isHeld('ArrowRight', 'KeyD') ? 1 : 0) - (isHeld('ArrowLeft', 'KeyA') ? 1 : 0);
+  if (dir) game.facing = dir;
+  if (b.blocked.down) game.lastGrounded = time;
+  b.ax = dir * ROBOT_ACCEL; b.dragX = ROBOT_ACCEL; b.maxSpeed = ROBOT_SPEED; b.allowGravity = true;
+  if (justDown('Space', 'KeyZ', 'ArrowUp', 'KeyW')) game.jumpBufferedAt = time;
+  if (time - game.jumpBufferedAt <= T.bufferMs && time - game.lastGrounded <= T.coyoteMs) {
+    b.vy = -ROBOT_JUMP;
+    game.jumpBufferedAt = game.lastGrounded = -Infinity;
+    audio.sfx('hop');
+  }
+  if (justUp('Space', 'KeyZ', 'ArrowUp', 'KeyW') && b.vy < 0) b.vy *= T.hopCut;
+  dashing = true; slamming = true; // touching a wall, an enemy or a bolt breaks it; landing breaks bricks
+  game.state = b.blocked.down ? 'ground' : 'air';
+}
+
+function endGame(time) {
+  ending.phase = 'done';
+  const secs = Math.round((time - game.startedAt) / 1000);
+  endEl.innerHTML = `<div style="font-size:44px;letter-spacing:6px">PALMBOUND</div>
+    <div>You made it to the surface.</div>
+    <div style="color:#5a6478;font-size:14px">${Math.floor(secs / 60)}m ${secs % 60}s · ${game.deaths} deaths · ${owned.size - 1}/${ITEMS.length - 1} upgrades</div>
+    <div style="color:#5a6478;font-size:14px;margin-top:12px">Palmbound is early access. More is on the way.</div>
+    <button style="margin-top:16px;font:inherit;padding:10px 28px;border:2px solid #0a0c14;background:none;cursor:pointer" onclick="location.reload()">Play again</button>`;
+  endEl.style.opacity = 1;
+  endEl.style.pointerEvents = 'auto';
+  audio.setMood('soft');
+  audio.setIntensity(0.05);
+}
 
 function endSlam(time) {
   game.slamming = false;
@@ -781,7 +910,8 @@ function updateGame(time) {
   const b = body;
   const has = (id) => owned.has(id);
 
-  if (game.dead) { b.vx = 0; b.vy = 0; b.ax = 0; b.allowGravity = false; return; }
+  if (game.dead || ending.phase === 'connect' || ending.phase === 'done') { b.vx = 0; b.vy = 0; b.ax = 0; b.allowGravity = false; return; }
+  if (ending.phase === 'escape') return updateRobot(time);
   if (justDown('KeyR')) { respawn(); game.rDownAt = time; }
   if (!isHeld('KeyR')) game.rDownAt = 0;
   else if (game.rDownAt && time - game.rDownAt > 1200) { // holding R is the way out of any trap: back to the very first station
@@ -1012,8 +1142,10 @@ function updateWorld(time, dt) {
     const info = UPGRADES[it.id];
     if (it.id === 'core') {
       game.won = true;
-      const secs = Math.round((time - game.startedAt) / 1000);
-      showMessage(`THE CORE\nThe hand is whole again.\n${Math.floor(secs / 60)}m ${secs % 60}s · ${game.deaths} deaths · ${owned.size}/${ITEMS.length} upgrades`, 12000);
+      ending.phase = 'carry';
+      audio.setMood('soft'); // quiet, after the Keeper
+      audio.setIntensity(0.05);
+      showMessage('Take the core to the robot.', 9000);
     } else {
       showMessage(`${info.name}\n${info.desc}`);
     }
@@ -1070,6 +1202,7 @@ const _target = new THREE.Vector3();
 let ceilDy = 0; // eased downward offset of the hand while it rolls onto a ceiling, so the unrolled palm isn't buried in the rock
 
 function updateHand(dt, time) {
+  if (!hand.root.visible) return; // plugged into the robot
   const b = body;
   let poseTarget = 0;
   let faceSign = game.facing;
@@ -1169,7 +1302,7 @@ const camTarget = new THREE.Vector3(SPAWN.x, toY(SPAWN.y), 0);
 const camGoal = new THREE.Vector3();
 
 function updateCamera(dt) {
-  camDist += (CAM_DIST * (combat.bossActive() ? 1.55 : 1) - camDist) * Math.min(1, dt * 2);
+  camDist += (CAM_DIST * (combat.bossActive() || game.robot ? 1.55 : 1) - camDist) * Math.min(1, dt * 2);
   const halfH = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * camDist;
   const halfW = halfH * camera.aspect;
   const gx = WORLD_W > halfW * 2 ? clamp(body.x, halfW, WORLD_W - halfW) : WORLD_W / 2;
@@ -1265,6 +1398,7 @@ function frame(now) {
     if ((game.state === 'grip' || game.state === 'ceiling') && game.state !== stateBefore) audio.sfx('grip');
     updateWorld(now, dt);
     updateHand(dt, now);
+    updateEnding(now, dt);
 
     // ambient loops: glide wind and the buzz of the nearest drone
     let near = Infinity, pan = 0;

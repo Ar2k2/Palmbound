@@ -8,6 +8,8 @@ export const AIR = 0, ROCK = 1, SLICK = 2, SPIKE = 3, CRACK = 4, BRICK = 5;
 
 export const grid = new Uint8Array(COLS * ROWS).fill(ROCK);
 export const tileAt = (c, r) => (c < 0 || r < 0 || c >= COLS || r >= ROWS ? ROCK : grid[r * COLS + c]);
+// the endgame: the robot sleeps in the Keeper's arena at robotC, and the escape tunnel runs east to the surface at exitC
+export const ESCAPE = { seal: [148, 5, 2, 5], x0: 148, x1: 242, robotC: 119, exitC: 237 };
 
 const put = (c, r, w, h, t) => { for (let y = r; y < r + h; y++) for (let x = c; x < c + w; x++) grid[y * COLS + x] = t; };
 const carve = (c, r, w, h) => put(c, r, w, h, AIR);
@@ -111,6 +113,16 @@ carve(106,5,8,5);               // passage east out of the old core room
 carve(114,2,34,8);              // the arena: floor on row 10
 solid(124,6,5,1); solid(134,6,5,1);   // two floating slabs to dodge around
 
+// ---------------- THE ESCAPE: a sealed tunnel east of the Keeper's arena. Only the robot can break the seal ----------------
+solid(148,5,2,5,CRACK);        // the seal (see ESCAPE.seal: a Dash will not break it)
+carve(150,4,31,6);             // hall 1
+solid(166,4,2,6,CRACK);
+solid(181,4,2,6,CRACK);
+carve(183,2,30,6);             // hall 2: the floor is two tiles higher
+solid(198,2,2,6,CRACK);
+solid(213,2,2,6,CRACK);
+carve(215,0,27,6);             // hall 3: higher still, and open to the surface at the far end
+
 // ---------------- THE FOUNDRY (east of the S wing): needs the whole hand ----------------
 solid(106,34,1,3,CRACK);        // the door: only a Dash breaks it
 carve(107,33,6,4);              // antechamber
@@ -192,6 +204,10 @@ export const ENEMIES = [
   ['turret', 140, 36], ['turret', 160, 36], ['turret', 200, 97], ['turret', 234, 97], ['turret', 118, 98], ['turret', 96, 98], ['turret', 48, 72],
   ['diver', 31, 63], ['diver', 40, 63], ['diver', 65, 68], ['diver', 80, 85], ['diver', 110, 85], ['diver', 130, 85],
   ['diver', 190, 80], ['diver', 214, 80], ['diver', 135, 33], ['diver', 150, 33],
+  // the escape tunnel: things for the robot to smash
+  ['crawler', 156, 9, 6], ['crawler', 172, 9, 6], ['turret', 178, 9],
+  ['crawler', 190, 7, 6], ['crawler', 205, 7, 5], ['turret', 186, 7], ['turret', 211, 7],
+  ['crawler', 222, 5, 6], ['turret', 232, 5], ['crawler', 235, 5, 2],
 ];
 
 // the bosses: arenas in tiles, and the item each one guards (it stays hidden until the boss is down)
@@ -213,6 +229,7 @@ export const FLOATERS = [
   [102, 38, 'y', 3, 1.2],
   [101, 32, 'x', 2, 1.5],
   [58, 6, 'y', 1.5, 1.3],
+  [160, 6, 'x', 3, 1.2], [192, 4, 'x', 3, 1.3], [226, 3, 'x', 4, 1.1], // escape tunnel
 ];
 
 export const HINTS = [
@@ -249,4 +266,5 @@ export const TINTS = [
   [168, 56, 250, 80, 0x2a1a2e],  // rumble pit
   [168, 80, 250, 120, 0x12282e], // cellar
   [0, 60, 106, 120, 0x182a1c],   // hollows
+  [148, 0, 250, 12, 0x3a2616],   // escape tunnel (keep last: scenery.js PALETTE is indexed by this list)
 ];

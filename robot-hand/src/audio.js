@@ -183,6 +183,9 @@ export function ambient({ gliding, droneDist, dronePan }) {
 }
 
 export function setIntensity(v) { intensity = Math.max(0, Math.min(1, v)); }
+// 'normal' | 'soft' (just a pad and a few slow notes, for the quiet after the Keeper) | 'escape' (a driving thump on every beat)
+let mood = 'normal';
+export function setMood(m) { mood = m; }
 
 export function toggleMusic() {
   musicOn = !musicOn;
@@ -252,13 +255,13 @@ function playStep(s, t) {
     musicNote({ type: 'triangle', f: hz(chord.bass + 12), t, dur: STEP * 6, vol: 0.05, bus: musicBus });
   }
   const idx = PHRASE[inChord];
-  if (idx >= 0 && Math.random() < 0.55 + intensity * 0.4) {
+  if (idx >= 0 && (mood === 'soft' ? inChord % 4 === 0 && Math.random() < 0.6 : Math.random() < 0.55 + intensity * 0.4)) {
     const m = chord.arp[idx];
-    const v = (0.05 + intensity * 0.06) * (0.7 + Math.random() * 0.5);
+    const v = (0.05 + intensity * 0.06) * (0.7 + Math.random() * 0.5) * (mood === 'soft' ? 0.7 : 1);
     musicNote({ type: 'triangle', f: hz(m), t, dur: 0.5, vol: v, bus: pluckBus });
     musicNote({ type: 'sine', f: hz(m + 12), t, dur: 0.25, vol: v * 0.4, bus: pluckBus });
   }
-  if (inChord % 8 === 0) { // soft heartbeat on every bar
+  if (mood !== 'soft' && (inChord % 8 === 0 || (mood === 'escape' && inChord % 2 === 0))) { // soft heartbeat on every bar (every beat while escaping)
     const o = ctx.createOscillator();
     const g = ctx.createGain();
     o.frequency.setValueAtTime(95, t);
@@ -280,7 +283,7 @@ function playStep(s, t) {
     src.connect(f); f.connect(g); g.connect(musicBus);
     src.start(t, Math.random()); src.stop(t + 0.06);
   }
-  if (Math.random() < 0.05) { // a rare high bell
+  if (Math.random() < (mood === 'soft' ? 0.12 : 0.05)) { // a rare high bell
     const m = chord.arp[Math.floor(Math.random() * chord.arp.length)] + 12;
     musicNote({ type: 'sine', f: hz(m), t, dur: 2.2, vol: 0.04, bus: pluckBus });
   }

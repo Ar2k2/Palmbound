@@ -1,4 +1,4 @@
-import { COLS, ROWS, tileAt, AIR, SLICK, SPIKE, CHECKPOINTS } from './world.js';
+import { COLS, ROWS, tileAt, AIR, SLICK, SPIKE, CHECKPOINTS, ESCAPE } from './world.js';
 
 // which tiles the hand has seen (1 = explored)
 export const explored = new Uint8Array(COLS * ROWS);
@@ -62,4 +62,5 @@ export const exploredPercent = () => {
   for (let i = 0; i < COLS * ROWS; i++) if (grid0(i)) { open++; if (explored[i]) seen++; }
   return Math.round((100 * seen) / open);
 };
-const grid0 = (i) => tileAt(i % COLS, Math.floor(i / COLS)) !== 1 && tileAt(i % COLS, Math.floor(i / COLS)) !== SLICK;
+// the sealed escape tunnel does not count toward 'explored': you can only see it once the game is already won
+const grid0 = (i) => { const c = i % COLS, r = Math.floor(i / COLS); return tileAt(c, r) !== 1 && tileAt(c, r) !== SLICK && !(c >= ESCAPE.x0 && r < 12); };

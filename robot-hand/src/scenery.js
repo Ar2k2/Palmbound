@@ -22,6 +22,7 @@ const PALETTE = [
   { rock: [1.1, 0.85, 1.15],  glow: 0xff7ad8 },  // rumble pit: magenta
   { rock: [0.8, 1.1, 1.1],    glow: 0x4affd0 },  // cellar: teal
   { rock: [0.9, 1.15, 0.85],  glow: 0x9aff6a },  // hollows: lime moss
+  { rock: [1.2, 1.02, 0.8],   glow: 0xffd89a },  // escape tunnel: warm, daylight ahead
 ];
 
 let seed = 1234;
