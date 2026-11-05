@@ -145,6 +145,7 @@ export function buildBoss(def = {}) {
 }
 
 // OLD RUMBLE: a huge armoured wheel that charges along the floor
+export const ROLLER_R = 27; // hitbox radius; the model is drawn at radius 32 and scaled down
 export function buildRoller(def = {}) {
   const g = new THREE.Group();
   const spin = new THREE.Group();
@@ -166,6 +167,7 @@ export function buildRoller(def = {}) {
   put(face, new THREE.SphereGeometry(5, 12, 10), eyeMat, 0, 4, 29).scale.set(1.4, 1, 0.5);
   const aura = makeGlow(def.aura || 0xffa13d, 130, 0.25);
   g.add(aura);
+  g.scale.setScalar(ROLLER_R / 32);
   return {
     g, eyeMat,
     animate(dt, time, vx, flash, eyeColor) {

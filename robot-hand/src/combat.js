@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { TILE, AIR, SPIKE, tileAt, ENEMIES, BOSSES } from './world.js';
 import { makeGlow } from './fx.js';
-import { buildBoss, buildRoller, buildCrawler, animateCrawler, buildTurret, buildDiver, animateDiver } from './models.js';
+import { buildBoss, buildRoller, ROLLER_R, buildCrawler, animateCrawler, buildTurret, buildDiver, animateDiver } from './models.js';
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const toY = (y) => -y;
@@ -180,7 +180,7 @@ const bosses = BOSSES.map((def) => {
   const reward = items.find((i) => i.id === def.reward);
   reward.locked = true;
   reward.group.visible = false;
-  const R = roller ? 32 : 40;
+  const R = roller ? ROLLER_R : 40;
   return { def, a, fx, roller, R, reward, max: def.hp, hp: def.hp, state: 'asleep', t: 0, x: (a.x0 + a.x1) / 2, y: roller ? a.floor - R : a.top + 80, vx: 0, flash: 0, invuln: 0, shotT: 0, dir: 1, dead: false };
 });
 const bossActive = () => bosses.some((B) => B.state !== 'asleep' && !B.dead);
@@ -251,12 +251,21 @@ function updateBoss(B, time, dt) {
       B.t += dt;
       eye = Math.sin(B.t * 30) > 0 ? 0xffffff : 0xff5a2a;
       B.x += Math.sin(B.t * 60) * 1.2; // it shudders
-      if (B.t > 1) { B.state = 'charge'; B.t = 0; B.dir = Math.sign(b.x - B.x) || 1; }
+      if (B.t > 1) { // if you are off the floor it rolls the long way round: up one wall, across the ceiling, down the other
+        B.state = 'charge'; B.t = 0; B.dir = Math.sign(b.x - B.x) || 1;
+        B.left = (B.dir < 0 ? B.x - (a.x0 + B.R + 4) : a.x1 - B.R - 4 - B.x) + (b.y < a.floor - 70 ? 2 * (a.floor - a.top - 2 * B.R - 8) + (a.x1 - a.x0 - 2 * B.R - 8) : 0);
+      }
     } else if (B.state === 'charge') {
       eye = 0xffffff;
-      B.x += B.dir * (phase2 ? 540 : 440) * dt;
-      if (B.x <= a.x0 + B.R + 4 || B.x >= a.x1 - B.R - 4) {
-        B.x = clamp(B.x, a.x0 + B.R + 4, a.x1 - B.R - 4);
+      const step = Math.min(B.left, (phase2 ? 540 : 440) * dt);
+      B.left -= step;
+      const X0 = a.x0 + B.R + 4, X1 = a.x1 - B.R - 4, Y0 = a.top + B.R + 4, Y1 = a.floor - B.R - 4, W = X1 - X0, H = Y1 - Y0;
+      // distance travelled along the loop (bottom edge right to left, up the left wall, across the top, down the right wall)
+      let s = B.y >= Y1 ? X1 - B.x : B.x <= X0 ? W + Y1 - B.y : B.y <= Y0 ? W + H + B.x - X0 : 2 * W + H + (B.y - Y0);
+      s = (s + (B.dir < 0 ? step : -step) + 2 * (W + H)) % (2 * (W + H));
+      if (s < W) { B.x = X1 - s; B.y = Y1; } else if (s < W + H) { B.x = X0; B.y = Y1 - (s - W); } else if (s < 2 * W + H) { B.x = X0 + (s - W - H); B.y = Y0; } else { B.x = X1; B.y = Y0 + (s - 2 * W - H); }
+      B.ds = B.dir < 0 ? step : -step;
+      if (B.left <= 0) {
         B.state = 'stun'; B.t = 0;
         ctx.shake(0.6);
         audio.sfx('crack');
@@ -313,7 +322,7 @@ function updateBoss(B, time, dt) {
     if (B.y <= a.top + 80) { B.state = 'hover'; B.t = 0; B.shotT = 0.8; }
   }
 
-  B.vx = (B.x - prevX) / Math.max(dt, 0.001);
+  B.vx = B.roller && B.state === 'charge' ? -(B.ds || 0) / Math.max(dt, 0.001) : (B.x - prevX) / Math.max(dt, 0.001); // a roller on a wall or ceiling still spins
   B.fx.g.position.set(B.x, toY(B.y), 0);
   B.fx.animate(dt, time, B.vx, B.flash, eye);
   if (B.state !== 'asleep') {

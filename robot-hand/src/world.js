@@ -139,7 +139,6 @@ solid(118,52,5,1); solid(130,52,5,1); solid(124,48,4,1);
 solid(168,69,2,1,CRACK);        // door in the east wall, level with the east ledge
 carve(170,67,8,3);
 carve(178,60,34,10);            // the arena: floor on row 70
-solid(185,65,5,1); solid(198,65,5,1);
 solid(195,70,4,1,BRICK);        // a patch of brick in the floor: a Slam goes straight through
 
 // ---------------- THE CELLAR (under the brick): everything in here wants to bite ----------------

@@ -29,7 +29,7 @@ const T = {
   airDrag: 250,         // how fast you slow down in the air
   gravity: 900,
   maxFall: 520,
-  hopVelocity: 330,     // jump strength (once unlocked)
+  hopVelocity: 370,     // jump strength (once unlocked)
   hopCut: 0.45,         // releasing jump early cuts upward speed by this much
   coyoteMs: 90,         // can still jump this long after leaving a ledge
   bufferMs: 110,        // jump pressed slightly early still counts
@@ -804,7 +804,8 @@ function updateGame(time) {
   // slick surfaces only count as something to grip once you have Suction
   const wallR = b.blocked.right && (!b.touch.right || has('suction'));
   const wallL = b.blocked.left && (!b.touch.left || has('suction'));
-  const ceil = b.blocked.up && (!b.touch.up || has('suction'));
+  // blocked.up needs real overlap with the rock, which a near-zero-dt frame (30 * dt < EPS) never gives: while hanging, also trust the tile above so one tiny frame can't read as "ceiling ended"
+  const ceil = (b.blocked.up && (!b.touch.up || has('suction'))) || (game.state === 'ceiling' && headroomRow(b, 2) >= 0);
 
   let dir = (right ? 1 : 0) - (left ? 1 : 0);
   if (dir !== 0) game.facing = dir;
@@ -1066,6 +1067,7 @@ function showMessage(text, ms = 3500) {
 }
 
 const _target = new THREE.Vector3();
+let ceilDy = 0; // eased downward offset of the hand while it rolls onto a ceiling, so the unrolled palm isn't buried in the rock
 
 function updateHand(dt, time) {
   const b = body;
@@ -1079,7 +1081,8 @@ function updateHand(dt, time) {
     ox = game.gripDir * 5 * HAND_SCALE; // fingertips reach the wall
   } else if (game.state === 'ceiling') {
     poseTarget = Math.PI;
-    faceSign = -game.facing;
+    // keep the ground facing until the roll is past halfway, so the Y turn doesn't fight the Z roll
+    faceSign = Math.abs(hand.pose.rotation.z) > Math.PI / 2 ? -game.facing : game.facing;
   } else if (game.state === 'air') {
     poseTarget = clamp(-b.vx * 0.0015, -0.2, 0.2);
   }
@@ -1088,7 +1091,9 @@ function updateHand(dt, time) {
   hand.pose.rotation.z = lerpAngle(hand.pose.rotation.z, poseTarget, k);
   // turned a bit toward the camera so you can see the fingers and thumb
   hand.face.rotation.y = lerpAngle(hand.face.rotation.y, faceSign === 1 ? -0.55 : Math.PI + 0.55, k);
-  hand.root.position.set(b.x + ox, toY(b.y), 0);
+  const rolled = Math.min(1, Math.abs(hand.pose.rotation.z) / Math.PI); // 0 = ground pose, 1 = upside down
+  ceilDy += ((game.state === 'ceiling' ? 14 * (1 - rolled) : 0) - ceilDy) * k;
+  hand.root.position.set(b.x + ox, toY(b.y) - ceilDy, 0);
 
   // --- walking: planted fingertips stay put while the hand moves over them ---
   const onSurface = game.state !== 'air';
@@ -1324,4 +1329,16 @@ if (import.meta.env.DEV) Object.assign(sim, {
   world: (time, dt = 1 / 60) => updateWorld(time, dt), // hazards, pickups and the boss, for scripted fights
 });
 if (import.meta.env.DEV) window.__game = { bosses: combat.bosses, enemies: combat.enemies, body, game, owned, recalc, stat, items, explored, renderer, scene, drones, stations, camTarget, sim, ABILITY_IDS }; // for poking around in the console
+if (import.meta.env.DEV) { // dev only: press B to warp to the next boss arena with every ability (B again for the next boss)
+  let nextBoss = 0;
+  window.addEventListener('keydown', (e) => {
+    if (e.code !== 'KeyB' || e.repeat) return;
+    const B = combat.bosses[nextBoss++ % combat.bosses.length];
+    ABILITY_IDS.forEach((id) => owned.add(id));
+    recalc();
+    releaseSurface();
+    body.x = B.a.x0 + 80; body.y = B.a.floor - PLAYER_H / 2 - 0.5; body.vx = 0; body.vy = 0;
+    showMessage(`DEV: ${B.def.name}`, 1500);
+  });
+}
 if (import.meta.env.DEV && new URLSearchParams(location.search).has('bot')) import('./bot.js');
